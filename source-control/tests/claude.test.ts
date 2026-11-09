@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
 
 import { BAND_PROPS, inRepository, NOW, REPOSITORY } from './fixtures'
 import type { Script, World } from './fixtures'
@@ -44,7 +45,7 @@ function conflictingRepository(files: Map<string, number>): Script {
   return script
 }
 
-async function startedIn($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1]): Promise<World> {
+async function startedIn($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]): Promise<World> {
   const files = new Map([['/work/.git/FETCH_HEAD', NOW - 60_000]])
   const world = inRepository(on, conflictingRepository(files), files, ENGLISH)
 
@@ -123,5 +124,54 @@ describe('resolving conflicts with Claude', () => {
     expect(world.runs.some(run => run.line.startsWith('merge --no-edit'))).toBe(false)
     expect(world.prompts.length).toBe(1)
     expect(world.prompts[0]).toContain('Please fetch `origin` and merge `origin/main` into the current branch.')
+  })
+
+  test('a conflict in the band has a button that asks Claude to resolve it', async ($, on) => {
+    // Arrange
+    const world = await startedIn($, on)
+
+    world.script['status --porcelain=v2'] = { stdout: featureStatus([CONFLICT]) }
+    world.files.set('/work/.git/MERGE_HEAD', NOW)
+    await world.clock.advance(31_000)
+
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+
+    // Act
+    await ui.press({ key: 'status:resolve' })
+    await world.clock.advance(100)
+
+    // Assert
+    expect(world.prompts.length).toBe(1)
+    expect(world.prompts[0]).toContain('(merge) in: app.ts')
+  })
+
+  test('the counts are the push and pull buttons, without separate glyphs', async ($, on) => {
+    // Arrange
+    await startedIn($, on)
+
+    // Act
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+
+    // Assert
+    expect((await ui.find({ type: 'Button', key: 'push' }))?.text).toBe('↑1')
+    expect(await ui.find({ type: 'Button', key: 'pull' })).toBeUndefined()
+    expect(await ui.find({ type: 'Button', text: '⇡' })).toBeUndefined()
+  })
+
+  test('during a conflict the base shows no preview and takes nothing in', CLAUDE, async ($, on) => {
+    // Arrange
+    const world = await startedIn($, on)
+
+    world.script['status --porcelain=v2'] = { stdout: featureStatus([CONFLICT]) }
+    world.files.set('/work/.git/MERGE_HEAD', NOW)
+    await world.clock.advance(31_000)
+
+    // Act
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+
+    // Assert
+    expect(await ui.find({ type: 'Button', key: 'base:origin/main' })).toBeUndefined()
+    expect(await ui.find({ type: 'Button', key: 'push' })).toBeUndefined()
+    expect((await ui.find({ type: 'Text', text: /main↓5/ }))?.text).toBe('main↓5')
   })
 })

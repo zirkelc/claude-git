@@ -8,27 +8,26 @@ A mod for Claude Code (desktop app and terminal) that makes Git as visible and a
 **The band above the chat box**: always there, minimal. In the terminal it uses the colors of a git statusline:
 
 ```
-⎇ feature (♣ wt) ✎ 3 ↑1 ↓2 ⇡ ⇣ [ ↻ Sync 2↓ 1↑ ] upstream/main↓5 ✗2 origin/main↓0 · ↻ 4 min ago   ◨
+⎇ feature (♣ wt) ✎ 3 ↑1 ↓2 upstream/main↓5 ✗2 origin/main↓0 · ↻ 4 min ago   [ ↻ Sync 2↓ 1↑ ] ◨
 ```
 
 - `⎇ feature`: the current branch (or `abc1234 (detached)`).
 - `(♣ wt)`: the worktree, shown only in a linked worktree (one made with `git worktree add`, Claude's included), not in the main checkout. It is the name of the worktree's folder, in magenta in the terminal. A narrow terminal hides it.
 - `✎ 3`: changed files.
-- `↑1 ↓2`: local commits not on the remote yet (**push**), and commits on the remote not here yet (**pull**). They always show: a zero is dim, and a branch without upstream shows `↑- ↓-`.
-- `⇡` pushes, `⇣` pulls. Each shows when there is something to push or pull.
-- `↻ Sync` (pull, then push) sits next to the counts while the branch is behind or ahead.
-- `upstream/main↓5`: commits on a base branch that are not on this branch yet. Press the chip to take them in. See [Base branches](#base-branches).
-- `✗2` or `⚠` on a chip, on `⇣` or on Sync: taking those commits in would not go cleanly. See [Merge preview](#merge-preview).
-- `✦` on a chip, on `⇣` or on Sync: if that action stops on conflicts, Claude resolves them at once. It shows only with the setting **Resolve conflicts** = `claude`. See [Conflicts to Claude](#conflicts-to-claude).
+- `↑1 ↓2`: local commits not on the remote yet, and commits on the remote not here yet. Press `↑1` to **push** and `↓2` to **pull**. They always show: a zero is dim, and a branch without upstream shows `↑- ↓-`. During a merge, rebase or conflict they do not press.
+- `upstream/main↓5`: commits on a base branch that are not on this branch yet. Press the chip to take them in. See [Base branches](#base-branches). When the base is the branch's own upstream (on `main`, `origin/main`), the chip only shows the count, because `↓` pulls it.
+- `✗2` or `⚠` on a chip, on `↓` or on Sync: taking those commits in would not go cleanly. See [Merge preview](#merge-preview). They hide during a merge, rebase or conflict.
+- `✦` on a chip, on `↓` or on Sync: if that action stops on conflicts, Claude resolves them at once. It shows only with the setting **Resolve conflicts** = `claude`. See [Conflicts to Claude](#conflicts-to-claude).
 - `⇡ publish` (branch without upstream): press it to publish the branch (push with upstream).
+- `· 1 conflict · ✦ resolve`: press `✦ resolve` to ask Claude to resolve the conflicts. It sends the same prompt as **Ask Claude to resolve** in the panel, without opening the panel.
 - `↻ 4 min ago`: when the remote was last checked (fetched). Press it to fetch. It shows at full strength (not dim) when stale, `offline` or `never checked`. A green `✓` shows only when everything is clean, in sync and freshly checked.
 - The **main button** on the right does what is due now, as VS Code's does. In the desktop app it is the app's own primary button, in the terminal VS Code's blue:
 
   | State | Button |
   |---|---|
-  | behind or ahead of the remote | `↻ Sync` (pull, then push), next to the counts |
+  | behind or ahead of the remote | `↻ Sync` (pull, then push) |
   | local changes only | `✓ Commit…` (opens the panel at the message field) |
-  | conflict, or a merge/rebase in progress | `Resolve…` / `Finish…` (opens the panel) |
+  | a merge/rebase in progress with all conflicts resolved | `Finish…` (opens the panel) |
 
 - `◨` opens or closes the **Source Control panel** beside the chat.
 
@@ -81,7 +80,7 @@ Like GitHub's "This branch has conflicts", the band shows before you press wheth
 - `⚠`: local changes (untracked files included) would be overwritten, so git would refuse to start. Commit or stash them first.
 - No mark: a clean merge, or a fast-forward.
 
-The marks sit on each base chip, on `⇣` and on Sync (it pulls first). The panel lists the files:
+The marks sit on each base chip, on `↓` and on Sync (it pulls first). The panel lists the files:
 
 ```
 ✗ Taking in upstream/main would conflict in: src/app.ts, src/lib/x.ts
@@ -92,7 +91,7 @@ The merge is worked out in memory with `git merge-tree --write-tree`, which touc
 
 ## Conflicts to Claude
 
-With the setting **Resolve conflicts** = `claude`, the buttons that take in commits (each base chip, `⇣` and Sync) carry `✦`, for example `main↓3 ✗2 ✦`. The mark only shows that the setting is on. It does not depend on the preview, because the preview can be missing or wrong.
+With the setting **Resolve conflicts** = `claude`, the buttons that take in commits (each base chip, `↓` and Sync) carry `✦`, for example `main↓3 ✗2 ✦`. The mark only shows that the setting is on. It does not depend on the preview, because the preview can be missing or wrong.
 
 When you press such a button:
 
@@ -103,7 +102,7 @@ When you press such a button:
 
 While Claude is in a turn, the mod does not touch the files that the turn works on. It gives the full task to Claude as a prompt instead ("fetch origin and merge origin/main into the current branch, and resolve conflicts if git stops"), which runs when the turn ends.
 
-`/git pull`, `/git sync` and `/git update` never ask Claude: you typed them, and Claude sees their output. The `Resolve…` button on the band stays as it is and opens the panel. With `ask` (the default), a merge that stops on conflicts waits for you.
+`/git pull`, `/git sync` and `/git update` never ask Claude: you typed them, and Claude sees their output. `✦ resolve` on the band sends the same prompt by hand. With `ask` (the default), a merge that stops on conflicts waits for you.
 
 ## Claude is told
 
@@ -203,7 +202,7 @@ Then restart Claude Code. A local checkout updates with `git pull`.
 - **Repository hooks do not run** when you commit or push from the mod: Claude Code runs Git for mods with hooks turned off. If the repository has hooks (Husky, for example), the panel says so. If you need them, let Claude commit.
 - **Credentials** in remote URLs are never shown.
 - **Colors:** in the terminal the band uses the Tomorrow Night palette as hex values (`STATUSLINE_COLOR` in `source-control/hooks/ui/theme.ts`), the colors a git statusline gets in that theme. Claude Code accepts no reference to the terminal's own palette, so with another terminal theme change those values. The desktop app uses its theme's colors.
-- **Buttons have one color:** a button label cannot mix colors, so the counts stay colored text and the small `⇡` and `⇣` next to them press. The base chips, `⇡ publish` and the fetch time are dim at rest and colored under the pointer.
+- **Buttons:** `↑` and `↓` keep their colors as buttons, and `✦ resolve` is in Claude's color. The base chips, `⇡ publish` and the fetch time are dim at rest and colored under the pointer.
 - **Not possible:** anything in the desktop app's left project sidebar. That belongs to the app; mods cannot draw there. The band and the panel take its place.
 
 ## License

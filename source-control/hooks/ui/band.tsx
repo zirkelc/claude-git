@@ -96,8 +96,6 @@ export function primaryButton(
  * base branches' new commits as chips that take them in, then what is going
  * on and how fresh the remote side is.
  *
- * @param syncButton the main button when its job is a sync, drawn beside the
- *   counts it settles; null when the main button stays on the right
  * @param claudeMark ` ✦` on the buttons that take in commits when Claude
  *   resolves their conflicts, else empty
  */
@@ -107,7 +105,6 @@ function statusText(
   view: ScView,
   handlers: Handlers,
   staleAfterMs: number,
-  syncButton: RenderElement | null,
   claudeMark: string,
 ): RenderElement {
   const { Box, Button, Text } = kit
@@ -129,15 +126,38 @@ function statusText(
   const bases = isNarrow ? snapshot.bases.slice(0, 1) : snapshot.bases
   const hasUpstream = snapshot.upstream !== null && !snapshot.isUnborn
   const worktree = snapshot.isLinkedWorktree ? (snapshot.root.split(/[\\/]/).pop() ?? '') : ''
+  // a merge, rebase or conflict under way: nothing new can be taken in, so
+  // the counts do not press and no preview shows
+  const isStopped = snapshot.conflicts.length > 0 || snapshot.operation !== null
+  const markOf = (preview: ScSnapshot['pullPreview']) => (isStopped ? '' : previewMarkOf(preview))
 
-  // a zero still shows while there is an upstream, dim, so the counts keep their place
-  const count = (glyph: string, n: number, color: string | undefined) => (
-    <Text {...(n > 0 ? colorOf(color) : { dimColor: true })}>{` ${glyph}${n}`}</Text>
+  // a zero still shows while there is an upstream, dim, so the counts keep
+  // their place; a count above zero is the button that settles it
+  const countButton = (key: 'push' | 'pull', label: string, n: number, color: string | undefined) => (
+    <Box key={key} marginLeft={1}>
+      {n > 0 && !isStopped ? (
+        <Button
+          key={key}
+          plain
+          dimColor={isBusy}
+          hover={{ scope: key, underline: true }}
+          onPress={() => {
+            if (!isBusy) {
+              handlers.act(key)
+            }
+          }}
+        >
+          <Text {...colorOf(color)}>{label}</Text>
+        </Button>
+      ) : (
+        <Text {...(n > 0 ? colorOf(color) : { dimColor: true })}>{label}</Text>
+      )}
+    </Box>
   )
 
   // a status word that does what it names: dim at rest, as the words beside
   // it, at full strength while it warns (a button keeps one color)
-  const statusButton = (key: string, label: string, isWarning: boolean, onPress: () => void) => (
+  const statusButton = (key: string, label: string, isWarning: boolean, onPress: () => void, color?: string) => (
     <Box key={key} flexDirection="row">
       <Text color={COLOR.muted}>{' · '}</Text>
       <Button
@@ -151,26 +171,7 @@ function statusText(
           }
         }}
       >
-        {label}
-      </Button>
-    </Box>
-  )
-
-  // a button keeps one color, so the counts stay colored text and these glyphs press
-  const remoteButton = (key: 'push' | 'pull', glyph: string) => (
-    <Box marginLeft={1}>
-      <Button
-        key={key}
-        plain
-        dimColor
-        hover={{ scope: key, ...colorOf(key === 'push' ? palette.ahead : palette.behind) }}
-        onPress={() => {
-          if (!isBusy) {
-            handlers.act(key)
-          }
-        }}
-      >
-        {glyph}
+        {color === undefined ? label : <Text color={color}>{label}</Text>}
       </Button>
     </Box>
   )
@@ -193,22 +194,19 @@ function statusText(
           <Text>{`${changes}`}</Text>
         </Box>
       )}
-      {hasUpstream && (
-        <Text>
-          {count(GLYPH.ahead, snapshot.ahead, palette.ahead)}
-          {count(GLYPH.behind, snapshot.behind, palette.behind)}
-        </Text>
-      )}
+      {hasUpstream && countButton('push', `${GLYPH.ahead}${snapshot.ahead}`, snapshot.ahead, palette.ahead)}
+      {hasUpstream &&
+        countButton('pull', `${GLYPH.behind}${snapshot.behind}${markOf(snapshot.pullPreview)}${snapshot.behind > 0 ? claudeMark : ''}`, snapshot.behind, palette.behind)}
       {/* without an upstream (never pushed, detached) a placeholder keeps the layout */}
       {!hasUpstream && !snapshot.isUnborn && <Text dimColor>{` ${GLYPH.ahead}- ${GLYPH.behind}-`}</Text>}
-      {hasUpstream && snapshot.ahead > 0 && remoteButton('push', GLYPH.push)}
-      {hasUpstream && snapshot.behind > 0 && remoteButton('pull', `${GLYPH.pull}${previewMarkOf(snapshot.pullPreview)}${claudeMark}`)}
-      {syncButton !== null && <Box marginLeft={1}>{syncButton}</Box>}
       {bases.map(base => {
-        const label = `${clean(baseNameOf(snapshot, base))}${GLYPH.behind}${base.behind}${previewMarkOf(base.preview)}`
+        // the upstream itself (on main, origin/main) is pulled by ↓, so its
+        // chip only shows the count
+        const isUpstream = base.ref === snapshot.upstream
+        const label = `${clean(baseNameOf(snapshot, base))}${GLYPH.behind}${base.behind}${isUpstream ? '' : markOf(base.preview)}`
 
         // a chip with new commits takes them in, when nothing is in the way
-        if (canUpdateFrom(snapshot, base)) {
+        if (!isUpstream && canUpdateFrom(snapshot, base)) {
           const chip = `${label}${claudeMark}`
 
           return (
@@ -241,6 +239,9 @@ function statusText(
         {operation !== null && <Text color={COLOR.error}>{` · ${operation}`}</Text>}
       </Text>
       {/* the band's only publish: the main button leaves it to this word */}
+      {/* the panel's request to Claude, without opening the panel */}
+      {snapshot.conflicts.length > 0 &&
+        statusButton('status:resolve', `${GLYPH.claude} ${t().resolveWord}`, true, () => handlers.askClaude(), COLOR.claude)}
       {isUnpublished && statusButton('status:publish', `${GLYPH.publish} ${t().publishWord}`, false, () => handlers.act('publish'))}
       {view.busy !== null && <Text color={COLOR.muted}>{` · ${view.busy}`}</Text>}
       {/* the fetch's age fetches again; a fetch under way is no button */}
@@ -294,16 +295,16 @@ export function bandView(
           }
         }, isBusy)
 
-  // a sync settles the counts, so it sits beside them; a publish is the
-  // status word `publish`; the other jobs stay on the right
-  const isSyncBesideCounts = primary?.kind === 'sync'
+  // a publish is the status word `publish`, and a conflict the panel toggle
+  // and `resolve` beside it; the other jobs stay on the right
   const isPublish = primary?.kind === 'publish'
+  const isConflict = primary?.kind === 'resolve' && snapshot.conflicts.length > 0
 
   return (
     <Box flexDirection="row" width="100%" paddingRight={kit.surface === 'terminal' ? ENGINE_MARK_COLUMNS : 0}>
-      <Box flexShrink={1}>{statusText(kit, snapshot, view, handlers, staleAfterMs, isSyncBesideCounts ? main : null, claudeMark)}</Box>
+      <Box flexShrink={1}>{statusText(kit, snapshot, view, handlers, staleAfterMs, claudeMark)}</Box>
       <Box flexGrow={1} />
-      {main !== null && !isSyncBesideCounts && !isPublish && <Box marginLeft={1}>{main}</Box>}
+      {main !== null && !isPublish && !isConflict && <Box marginLeft={1}>{main}</Box>}
       <Box marginLeft={1}>
         <Button key="panel" plain dimColor={!view.isPaneOpen} onPress={() => handlers.togglePane()}>
           {GLYPH.panel}

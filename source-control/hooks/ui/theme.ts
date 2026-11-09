@@ -19,6 +19,7 @@ export const COLOR = {
   warn: 'warning',
   error: 'error',
   muted: 'inactive',
+  claude: 'claude',
   added: 'diffAddedWord',
   removed: 'diffRemovedWord',
   badgeText: 'inverseText',

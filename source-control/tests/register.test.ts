@@ -246,7 +246,8 @@ describe('register', () => {
 
     const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
 
-    expect((await band.find({ type: 'Button', key: 'primary' }))?.text).toBe('Auflösen…')
+    expect(await band.find({ type: 'Button', key: 'primary' })).toBeUndefined()
+    expect((await band.find({ type: 'Button', key: 'status:resolve' }))?.text).toBe('✦ lösen')
 
     await $.command.run(gitCommand(''))
 
